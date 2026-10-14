@@ -174,7 +174,7 @@ test('rebuilds standard HAR and drops hidden secrets at every structural level',
   assert.ok(!JSON.stringify(cleaned).includes('SENTINEL_'));
   assert.deepEqual(Object.keys(cleaned), ['log']);
   assert.deepEqual(Object.keys(cleaned.log), ['version', 'creator', 'entries']);
-  assert.deepEqual(cleaned.log.creator, { name: 'TraceTidy', version: '0.1.0' });
+  assert.deepEqual(cleaned.log.creator, { name: 'TraceTidy', version: '0.2.0' });
   const output = cleaned.log.entries[0];
   assert.equal(output.request.method, 'OTHER');
   assert.equal(output.request.httpVersion, 'HTTP/1.1');
@@ -283,7 +283,7 @@ test('custom terms fail closed when they corrupt fixed HAR structure, and later 
     });
     const recovered = sanitizeHar(original);
     assert.equal(recovered.har.log.version, '1.2');
-    assert.equal(recovered.har.log.creator.version, '0.1.0');
+    assert.equal(recovered.har.log.creator.version, '0.2.0');
     assert.equal(recovered.har.log.entries[0].request.httpVersion, 'HTTP/2.0');
     assert.equal(new URL(recovered.har.log.entries[0].request.url).hostname, 'host-1.invalid');
   }
@@ -367,6 +367,17 @@ test('summary preserves timeline order, detects failures, and accounts for body-
   assert.equal(summary.entries[1].path, '/api');
 });
 
+test('summary and sanitizer share the same timing fallback without double counting SSL', () => {
+  const source = har([entry({ time: undefined, timings: { send: 10, wait: 2000, receive: 100, ssl: 800 } })]);
+  const cleaned = sanitizeHar(source).har;
+  assert.equal(cleaned.log.entries[0].time, 2110);
+  assert.equal(summarizeHar(source).entries[0].time, 2110);
+  assert.equal(summarizeHar(cleaned).entries[0].time, 2110);
+  source.log.entries[0].time = 0;
+  assert.equal(sanitizeHar(source).har.log.entries[0].time, 0);
+  assert.equal(summarizeHar(source).entries[0].time, 0);
+});
+
 test('report uses sanitized topology, escapes Markdown, and excludes original secrets', () => {
   const source = entry();
   source.response.status = 500;
@@ -383,4 +394,26 @@ test('report uses sanitized topology, escapes Markdown, and excludes original se
   assert.ok(!report.includes('[link](javascript:'));
   assert.ok(report.includes('\\[link\\]'));
   assert.match(report, /Sharing review/);
+});
+
+test('report triage and endpoint summaries use sanitized entries and exclude query strings', () => {
+  const entries = Array.from({ length: 3 }, (_, index) => {
+    const source = entry({ time: 1000 + index * 500, timings: { wait: 700 + index * 350, receive: 10 } });
+    source.request.url = `https://TRIAGE_PRIVATE_HOST.invalid/TRIAGE_PRIVATE_PATH?token=TRIAGE_PRIVATE_QUERY_${index}`;
+    source.response.status = index === 0 ? 503 : 200;
+    source.response.content.text = 'TRIAGE_PRIVATE_BODY';
+    return source;
+  });
+  const sanitized = sanitizeHar(har(entries)).har;
+  const report = buildReport(sanitized);
+  for (const secret of ['TRIAGE_PRIVATE_HOST', 'TRIAGE_PRIVATE_PATH', 'TRIAGE_PRIVATE_QUERY', 'TRIAGE_PRIVATE_BODY']) assert.ok(!report.includes(secret));
+  assert.match(report, /## Triage observations/);
+  assert.match(report, /3 request\(s\) took at least 1 second with waiting/);
+  assert.match(report, /does not establish retries/);
+  assert.match(report, /## Endpoint summary/);
+  assert.match(report, /not wall-clock duration/);
+  const endpointSection = report.split('## Endpoint summary')[1].split('## Slowest requests')[0];
+  assert.ok(!endpointSection.includes('?'));
+  assert.ok(endpointSection.includes('host\\-1'));
+  assert.match(endpointSection, /\| 3 \| 1 \| 2000 ms \| 1500 ms \| 4500 ms/);
 });

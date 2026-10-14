@@ -13,7 +13,7 @@ const server = http.createServer(async (req, res) => {
     const file = path.resolve(root, '.' + (requested === '/' ? '/index.html' : requested));
     if (!file.startsWith(root) || !['/index.html', '/src/', '/public/', '/samples/'].some(p => requested === '/' || requested.startsWith(p))) throw new Error('Blocked path');
     if (!(await stat(file)).isFile()) throw new Error('Not a file');
-    res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" });
+    res.writeHead(200, { 'Content-Type': types[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'" });
     res.end(await readFile(file));
   } catch {
     res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('Not found');

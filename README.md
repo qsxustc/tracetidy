@@ -4,6 +4,8 @@
 
 [简体中文](README.zh-CN.md) · [Security model](docs/THREAT-MODEL.md) · [Launch plan](docs/LAUNCH.md) · [Contributing](CONTRIBUTING.md)
 
+**New in v0.2:** clickable triage observations, endpoint groups and P95 latency, editable reproduction context, and Web Worker processing with cached exports. [Repository](https://github.com/qsxustc/tracetidy) · [Performance and measurement](docs/PERFORMANCE.md)
+
 Browser network captures are useful when a request fails. They can also contain session cookies, bearer tokens, request payloads, response bodies, private domains, and customer details. TraceTidy helps developers remove that baggage before asking someone else to debug a problem.
 
 Open a HAR locally, inspect the original network timings, then export a sanitized HAR, a Markdown issue report, and an aggregate redaction audit. The browser app and CLI use the same sanitizer. **All export formats come from the same sanitized snapshot.**
@@ -14,6 +16,10 @@ Open a HAR locally, inspect the original network timings, then export a sanitize
 
 ## What works today
 
+- Clickable observations for network errors, HTTP 4xx/5xx, slow waiting/receiving, and repeated endpoints. These describe recorded patterns; they do not establish a root cause.
+- Endpoint groups by method, origin and path, with request/error counts, P95, average and summed duration. Filters choose which groups appear; group metrics cover the complete trace. Unknown duration uses recorded phases or 0, which can understate latency statistics.
+- Editable issue title, reproduction steps, expected behavior and actual behavior. Written context is included as entered and is not scrubbed by HAR redaction terms; review it before sharing.
+- Parsing, analysis, sanitization, report serialization and ZIP creation in a module Web Worker. Rule changes disable export until the newest snapshot succeeds; clearing a session cancels work and discards pending results.
 - A local browser workspace with drag-and-drop HAR import, URL/method/status search, failed/slow request filters, and sorting by start time, duration, or size.
 - A waterfall and request inspector with timing breakdowns. Original headers are available in an explicitly expanded private view.
 - An immediately available synthetic sample, English/Chinese language detection and switching, and a **Clear session** action. Imported traces and private terms stay in memory; they are not saved to browser storage and disappear when the tab is reloaded or closed.
@@ -46,6 +52,9 @@ The browser accepts files up to 25 MiB. Core validation limits source text to 50
 ```sh
 npm test
 npm run build
+
+# Repeatable, in-memory synthetic core measurement; no trace data collected.
+npm run benchmark
 ```
 
 The build produces the static browser app in `dist/`. See [the launch plan](docs/LAUNCH.md) for a GitHub Pages deployment workflow.
@@ -92,6 +101,8 @@ TraceTidy is deterministic, heuristic redaction, **not a guarantee of anonymizat
 The original file stays on your device. The app can show the original trace for your private investigation, so screen sharing and screenshots can still expose it. Sanitization removes information irreversibly from the export: **no secret-to-placeholder or route-alias mapping is generated or recoverable from TraceTidy.** Keep the original only in a location you control if further debugging requires it.
 
 Read the [threat model](docs/THREAT-MODEL.md) for the trust boundaries and review checklist. Use synthetic data in public issues and pull requests.
+
+The browser app needs module Web Workers and a local HTTP server or hosted HTTPS page. Opening `index.html` directly with `file://` is not supported. The CLI remains available without a browser. Processing has no telemetry or network requests beyond loading app modules and the fixed synthetic sample.
 
 ## How it fits together
 

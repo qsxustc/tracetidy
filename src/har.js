@@ -3,6 +3,9 @@
  * Sanitization rebuilds a small standard HAR allowlist. It never mutates input.
  */
 
+import { analyzeTrace, requestDuration } from './insights.js';
+import { VERSION } from './version.js';
+
 const MAX_SOURCE_LENGTH = 50 * 1024 * 1024;
 const MAX_ENTRIES = 50_000;
 const MAX_URL_LENGTH = 32_768;
@@ -330,7 +333,7 @@ function verifyShareStructure(har, mask) {
     throw new Error('A custom term conflicts with a structural HAR value. Use a more specific private term.');
   };
   const versions = new Set(['HTTP/1.0', 'HTTP/1.1', 'HTTP/2.0', 'HTTP/3.0']);
-  if (har.log.version !== '1.2' || har.log.creator.version !== '0.1.0') conflict();
+  if (har.log.version !== '1.2' || har.log.creator.version !== VERSION) conflict();
   for (const entry of har.log.entries) {
     if (timestamp(entry.startedDateTime) === null) conflict();
     if (!METHODS.has(entry.request.method) && entry.request.method !== 'OTHER') conflict();
@@ -395,7 +398,6 @@ export function sanitizeHar(source, { customTerms = [], preserveRoutes = false }
       audit.maskedQueryValues += request.queryString.length - cleanedUrl.queryString.length;
     }
     const cleanedTimings = timings(entry.timings, audit);
-    const totalTime = Object.entries(cleanedTimings).reduce((sum, [key, value]) => key === 'ssl' ? sum : sum + Math.max(0, value), 0);
     const method = typeof request.method === 'string' ? request.method.toUpperCase() : 'OTHER';
     const content = {
       size: integer(response.content?.size, 0),
@@ -406,7 +408,7 @@ export function sanitizeHar(source, { customTerms = [], preserveRoutes = false }
     }
     return {
       startedDateTime: date(entry.startedDateTime, earliest),
-      time: number(entry.time, Math.min(totalTime, MAX_TIME), 0, MAX_TIME),
+      time: requestDuration(entry),
       request: {
         method: METHODS.has(method) ? method : 'OTHER',
         url: cleanedUrl.url,
@@ -433,7 +435,7 @@ export function sanitizeHar(source, { customTerms = [], preserveRoutes = false }
     };
   });
   const rebuilt = {
-    log: { version: '1.2', creator: { name: 'TraceTidy', version: '0.1.0' }, entries },
+    log: { version: '1.2', creator: { name: 'TraceTidy', version: VERSION }, entries },
   };
   const result = applyCustomToStrings(rebuilt, mask, audit);
   // Custom terms may themselves match a fixed MIME label. An empty MIME type
@@ -461,7 +463,7 @@ export function summarizeHar(har) {
     const parsed = parsedUrl(url);
     const host = parsed?.host ?? '';
     if (host) hosts.add(host);
-    const time = number(entry?.time, 0, 0, MAX_TIME);
+    const time = requestDuration(entry);
     const startOffset = starts[index] === null ? 0 : Math.max(0, starts[index] - firstStart);
     const status = integer(entry?.response?.status, 0, 0, 599);
     const failed = status === 0 || status >= 400;
@@ -509,6 +511,7 @@ function requestTable(entries) {
 /** Build a Markdown investigation report from the caller's sanitized HAR. */
 export function buildReport(har, { title = 'Network investigation', notes = '' } = {}) {
   const summary = summarizeHar(har);
+  const insights = analyzeTrace(har);
   const slowest = [...summary.entries].sort((a, b) => b.time - a.time || a.index - b.index).slice(0, 10);
   const failures = summary.entries.filter((entry) => entry.failed);
   const lines = [
@@ -523,11 +526,42 @@ export function buildReport(har, { title = 'Network investigation', notes = '' }
     `- Hosts: ${summary.hostCount}`,
     `- Recorded duration: ${Math.round(summary.durationMs)} ms`,
     `- Slowest request: ${Math.round(summary.slowestMs)} ms`,
+    `- P95 request duration: ${Math.round(insights.stats.p95Ms)} ms (nearest rank over normalized durations; missing total time uses recorded phases, or 0 if no timing is available)`,
+    `- Slow requests (at least 1 second): ${insights.stats.slowRequests}`,
     `- Recorded response bytes: ${bytes(summary.totalBytes)}`,
     '',
     'Response bytes use HAR bodySize when available, otherwise content.size. Browser caching and compression can affect these values.',
   ];
-  if (String(notes).trim()) lines.push('', '## Investigation notes', '', markdownText(notes));
+  if (String(notes).trim()) lines.push('', '## Investigation notes', '',
+    'The following author-supplied context is included as entered. Custom HAR redaction rules do not process these notes.',
+    '', markdownText(notes));
+  lines.push('', '## Triage observations', '',
+    'These are observations from recorded values, not a diagnosis of the underlying cause. Missing status values are normalized to 0. Timing phases can be incomplete or inconsistent in a HAR. Unknown durations become 0 and can understate P95 and average latency.');
+  for (const finding of insights.findings) {
+    const references = finding.indices.slice(0, 10).map((index) => `#${index + 1}`).join(', ');
+    const suffix = finding.count > 10 ? `; showing 10 of ${finding.count}` : '';
+    const slowest = Math.round(finding.metrics.slowestMs);
+    const descriptions = {
+      'network-errors': `${finding.count} request(s) have status 0; the recording does not establish why no HTTP status was available.`,
+      'status-5xx': `${finding.count} request(s) returned HTTP 5xx. Inspect the corresponding service logs and reproduction context.`,
+      'status-4xx': `${finding.count} request(s) returned HTTP 4xx. Check the request context and whether that status was expected.`,
+      'slow-ttfb': `${finding.count} request(s) took at least 1 second with waiting accounting for at least 70% of recorded time. Compare waiting timings with service and connection evidence.`,
+      'slow-download': `${finding.count} request(s) took at least 1 second with receive accounting for at least 50% of recorded time. Compare response size and transfer conditions.`,
+      'repeated-requests': `${finding.count} request(s) share ${finding.metrics.endpointCount} method-and-endpoint group(s) called at least 3 times, ignoring query values. Repetition can be expected; this does not establish retries.`,
+    };
+    lines.push('', `- ${descriptions[finding.id]} Slowest: ${slowest} ms. Requests: ${references}${suffix}.`);
+  }
+  if (!insights.findings.length) lines.push('', 'No observations met the HTTP failure, timing-share, or repeated-request thresholds.');
+  lines.push('', '## Endpoint summary', '',
+    'Grouped by method, origin, and path; queries and fragments are excluded. Showing up to 10 groups by summed request time. Summed time includes overlapping requests and is not wall-clock duration.', '');
+  if (insights.endpoints.length) {
+    lines.push('| Method | Endpoint | Requests | Failed | P95 | Average | Summed time | Response size | Status counts |',
+      '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+      ...insights.endpoints.slice(0, 10).map((endpoint) => {
+        const statuses = Object.entries(endpoint.statuses).map(([status, count]) => `${status}: ${count}`).join(', ');
+        return `| ${cell(endpoint.method)} | ${cell(endpoint.url || '(URL unavailable)')} | ${endpoint.count} | ${endpoint.failures} | ${Math.round(endpoint.p95Ms)} ms | ${Math.round(endpoint.avgMs)} ms | ${Math.round(endpoint.totalTimeMs)} ms | ${bytes(endpoint.totalBytes)} | ${cell(statuses)} |`;
+      }));
+  } else lines.push('No endpoints were recorded.');
   lines.push('', '## Slowest requests', '');
   if (slowest.length) lines.push(...requestTable(slowest));
   else lines.push('No requests were recorded.');

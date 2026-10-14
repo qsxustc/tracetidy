@@ -1,5 +1,13 @@
 # TraceTidy threat model
 
+## v0.2 browser processing boundary
+
+The browser uses a same-origin module Web Worker for parsing, analysis, redaction, report text and ZIP creation. The original HAR is kept in Worker memory and a single browser-memory copy for the private inspector. It is not written to browser storage. Replacing or clearing a recording terminates the Worker and rejects pending operations; the UI also checks its session generation before accepting file reads or results.
+
+Sharing rules and report fields invalidate the current export immediately. Only the newest successful snapshot enables downloads; HAR, Markdown and audit text in a ZIP come from that snapshot. Worker failure does not fall back to processing private content in a remote service.
+
+User-written report titles and reproduction notes are **included as entered**. Custom HAR redaction terms do not scrub them. The UI and generated report warn about this boundary; the audit records whether author notes were included without recording their contents.
+
 ## Purpose and scope
 
 TraceTidy reduces accidental disclosure when developers share browser HAR captures. It parses the file locally, retains an explicit subset of HAR fields, removes sensitive material, and creates an export for human review. It is a deterministic heuristic tool, not a formal anonymizer, a secrets scanner with complete detection, or a compliance certification.

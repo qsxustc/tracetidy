@@ -4,6 +4,8 @@
 
 [简体中文](README.zh-CN.md) · [Security model](docs/THREAT-MODEL.md) · [Launch plan](docs/LAUNCH.md) · [Contributing](CONTRIBUTING.md)
 
+**[Try the public demo — no login required](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)** · [v0.2.0 release notes](docs/releases/v0.2.0.md)
+
 **New in v0.2:** clickable triage observations, endpoint groups and P95 latency, editable reproduction context, and Web Worker processing with cached exports. [Repository](https://github.com/qsxustc/tracetidy) · [Performance and measurement](docs/PERFORMANCE.md)
 
 Browser network captures are useful when a request fails. They can also contain session cookies, bearer tokens, request payloads, response bodies, private domains, and customer details. TraceTidy helps developers remove that baggage before asking someone else to debug a problem.

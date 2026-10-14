@@ -4,7 +4,7 @@
 
 [English](README.md) · [安全模型](docs/THREAT-MODEL.md) · [发布与商业验证计划](docs/LAUNCH.md) · [参与贡献](CONTRIBUTING.md)
 
-**[直接体验公开演示，无需登录](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)** · [v0.2.0 发布说明](docs/releases/v0.2.0.md) · [中英文推广文案](docs/PROMOTION.md)
+**[直接体验公开演示，无需登录](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)** · [下载 v0.2.0 正式版](https://github.com/qsxustc/tracetidy/releases/tag/v0.2.0) · [发布说明](docs/releases/v0.2.0.md) · [中英文推广文案](docs/PROMOTION.md)
 
 **v0.2 新增：** 可点击的排障线索、接口聚合与 P95 耗时、可编辑的复现报告，以及 Web Worker 后台处理和导出缓存。[GitHub 仓库](https://github.com/qsxustc/tracetidy) · [性能与测量说明](docs/PERFORMANCE.md)
 

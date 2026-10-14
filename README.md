@@ -4,7 +4,7 @@
 
 [简体中文](README.zh-CN.md) · [Security model](docs/THREAT-MODEL.md) · [Launch plan](docs/LAUNCH.md) · [Contributing](CONTRIBUTING.md)
 
-**[Try the public demo — no login required](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)** · [v0.2.0 release notes](docs/releases/v0.2.0.md)
+**[Try the public demo — no login required](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)** · [Download v0.2.0](https://github.com/qsxustc/tracetidy/releases/tag/v0.2.0) · [Release notes](docs/releases/v0.2.0.md)
 
 **New in v0.2:** clickable triage observations, endpoint groups and P95 latency, editable reproduction context, and Web Worker processing with cached exports. [Repository](https://github.com/qsxustc/tracetidy) · [Performance and measurement](docs/PERFORMANCE.md)
 

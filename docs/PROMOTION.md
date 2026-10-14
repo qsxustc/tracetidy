@@ -1,12 +1,14 @@
 # TraceTidy v0.2.0 launch copy
 
-These are author-written drafts for manual posting. The GitHub repository is public, the code is MIT-licensed, and the online demo is available without login. The v0.2.0 Release provides source and static web archives, checksums and a release manifest. Public posts below link to the demo, source and Release. Check each community's current submission rules, disclose authorship, and adapt the post to its audience. No community posts have been sent by preparing this file.
+This file contains AI-assisted reference material and drafts for the project owner's review. The GitHub repository is public, the code is MIT-licensed, and the online demo is available without login. The v0.2.0 Release provides source and static web archives, checksums and a release manifest. Check each community's current submission rules and disclose project authorship. The Hacker News section provides facts and links for the owner's own writing and manual submission under HN's rules. No community posts have been sent by preparing this file.
 
 - Public demo: [Try TraceTidy](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)
 - Public source: [qsxustc/tracetidy](https://github.com/qsxustc/tracetidy)
 - Public Release: [TraceTidy v0.2.0](https://github.com/qsxustc/tracetidy/releases/tag/v0.2.0)
 
-## 中文：即刻 / 朋友圈 / 开发者社区
+## 中文：即刻 / 朋友圈 / 开发者社区（AI 辅助草稿，需本人检查）
+
+以下为 AI 辅助草稿，不代表项目作者已亲自撰写或发布。使用前由本人核对事实、语气和平台对 AI 内容及自我推广的规定。
 
 做了一个开源小工具 TraceTidy，解决发 HAR 抓包前的整理和检查。在线演示免费，不用登录；抓包在浏览器本地处理。可以查看失败和慢请求、按接口聚合看 P95，再导出清理后的 HAR、Issue 草稿和清理记录。
 
@@ -14,23 +16,30 @@ These are author-written drafts for manual posting. The GitHub repository is pub
 
 演示：[TraceTidy](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/) · 源码：[GitHub](https://github.com/qsxustc/tracetidy) · 下载：[v0.2.0](https://github.com/qsxustc/tracetidy/releases/tag/v0.2.0)
 
-## English: Show HN
+## Show HN: factual reference for a human-written submission
 
-**Title:** Show HN: TraceTidy – inspect HAR files locally and build a reviewed sharing pack
+**Rules:** Read the current [Hacker News guidelines](https://news.ycombinator.com/newsguidelines.html) and [Show HN guidance](https://news.ycombinator.com/showhn.html) before submitting. HN's guidelines say: “Please don't put generated text in HN posts.” They also prohibit automated posting and AI-generated or AI-edited comments.
 
-**Post:**
+**由项目作者本人撰写并手动提交。** This section contains facts and links, not a ready-to-post title or body. The owner should write their own title and text from firsthand experience, and manually submit them. Copying, lightly rewording or polishing the earlier AI-generated text does not turn it into independently human-written text. Do not use an agent to submit the post or draft/edit HN comments.
 
-I built TraceTidy for the moment when a bug report needs a browser network capture, but sending the original HAR would expose more than the recipient needs. The free demo needs no account and processes captures locally in your browser. You can inspect requests, follow clickable observations about failures and slow phases, and group endpoints by method, host and path to see counts and P95 duration. These are observations from the capture, not root-cause diagnoses. The MIT-licensed source is available to inspect and run yourself, including a Node.js CLI with no runtime dependencies.
+Facts available for the owner's independent writing:
 
-The export reconstructs allowed fields, removes bodies and cookies, and aliases hosts and paths by default. A ZIP contains the sanitized HAR, a Markdown issue draft and a removal audit. That deliberately loses diagnostic context; exports still need review, and reproduction notes you type are included as entered. I would appreciate feedback on whether you could investigate a bug from this pack, and what evidence you would miss. The demo includes a synthetic capture to try without using a real trace.
+- TraceTidy inspects HAR captures locally in the browser; the public demo requires no login and includes a synthetic capture.
+- It presents request filters, clickable observations about recorded failures and slow phases, and endpoint groups with P95 duration. Those observations do not establish a root cause.
+- Default exports remove bodies and cookies, reconstruct allowed fields, and alias hosts and paths. The ZIP contains a sanitized HAR, Markdown issue draft and removal audit.
+- Cleaning removes diagnostic context. Retained timing, status and size patterns may still reveal information; the final export needs review.
+- User-entered reproduction notes are included unchanged and are not automatically sanitized.
+- The source is MIT-licensed and includes a Node.js CLI with no runtime dependencies.
 
-Demo: [TraceTidy](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)
+Reference links:
 
-Source: [qsxustc/tracetidy](https://github.com/qsxustc/tracetidy)
+- Demo: [TraceTidy](https://tracetidy-lab-qsx.cherryboar4.chatgpt.site/)
+- Source: [qsxustc/tracetidy](https://github.com/qsxustc/tracetidy)
+- Release: [v0.2.0 downloads and notes](https://github.com/qsxustc/tracetidy/releases/tag/v0.2.0)
 
-Release: [v0.2.0 downloads and notes](https://github.com/qsxustc/tracetidy/releases/tag/v0.2.0)
+## English: Reddit developer / side-project AI-assisted draft
 
-## English: Reddit developer / side-project draft
+**Draft status:** The following title and body were prepared with AI assistance. The owner must review them and check the selected community's current AI-content and promotion rules before deciding whether they may be used.
 
 **Title:** I built a local HAR workbench for preparing network-debugging handoffs
 
@@ -88,7 +97,7 @@ The dates below are relative to the verified public launch. They are a manual pl
 | 2 | If posting rules permit it, publish one author post linking to the demo, source and Release in the most relevant developer community. | Capture concrete questions and missing-context reports; do not treat views, likes or stars as proof of value. |
 | 3 | Arrange two consented walkthroughs with developers or support engineers. Let them use synthetic data without coaching. | Note where import, triage, rule changes or export cause confusion. |
 | 4 | Reproduce reported issues with synthetic fixtures, then fix the highest-impact confirmed problem. | A reproducible case and an appropriate verification result. |
-| 5 | Offer a Show HN post if the project and demo are ready. Stay available to answer technical questions as the author. | Specific feedback on export policy, useful evidence and deployment. |
+| 5 | If the project and demo are ready, the owner independently writes a Show HN title and body, then submits them manually under HN's current rules. The owner writes replies without AI generation or editing. | Specific feedback on export policy, useful evidence and deployment. |
 | 6 | Complete three more walkthroughs with relevant users; ask about their last real HAR handoff. | Workflow frequency, friction, what the recipient needs, and willingness to try it again. |
 | 7 | Review the five walkthroughs and public feedback; choose one next improvement. | Proposed gate: 3 of 5 finish unaided and 2 agree to use it on their next relevant case. These are targets, not achieved outcomes. |
 
@@ -110,6 +119,7 @@ Avoid collecting original private captures for launch metrics. Ask feedback prov
 - [ ] Re-run tests and build on the release commit, and check the hosted synthetic export.
 - [ ] Confirm screenshots and the recorded demo contain synthetic data only.
 - [ ] Read current rules for the selected community, keep the author disclosure, and post manually only where allowed.
+- [ ] For HN, the owner writes the title, body and comments themselves; do not copy, reword or polish AI-generated text, use AI to edit comments, or automate submission. Review the [HN guidelines](https://news.ycombinator.com/newsguidelines.html) and [Show HN guidance](https://news.ycombinator.com/showhn.html).
 - [ ] Do not claim complete anonymity, guaranteed safe sharing, superior security, broad compatibility, customer adoption, revenue or star counts without evidence.
 
-The demo, repository and v0.2.0 Release are public. Verify the anonymous demo workflow and download links before distributing these drafts. Preparing this file does not mean any community posts have been sent.
+The demo, repository and v0.2.0 Release are public. Verify the anonymous demo workflow and download links before using this reference material. The HN section is not submission copy; any HN post must be written and submitted by the owner. Preparing this file does not mean any community posts have been sent.

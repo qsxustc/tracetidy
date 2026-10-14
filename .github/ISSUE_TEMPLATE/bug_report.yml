@@ -1,0 +1,36 @@
+name: Bug report
+description: Report an error or a redaction defect using synthetic data only.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never attach an original sensitive HAR or a live credential. Replace all private values with fake examples before submitting. This public form is suitable for synthetic reproductions only.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the behavior and what you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal synthetic reproduction
+      description: Include steps and a small HAR snippet with fake values. For a leak, name the fake value that should have been removed.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser or Node.js version, operating system, app/CLI mode, and whether route preservation was enabled.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I used synthetic data and did not include live credentials, private URLs, or personal details.
+          required: true

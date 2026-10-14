@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Added a baseline/current comparison tab with endpoint search, change filters, adjustable P95 thresholds and a jump to matching requests in the current trace.
+- Matched exact method, origin and path while ignoring queries and fragments. Classified meaningful P95 changes using both absolute and relative thresholds (100 ms and 20% by default); any failure-rate increase takes regression priority.
+- Added a synthetic baseline demonstrating regressions, improvements, added endpoints and removed endpoints alongside the existing current demo.
+- Added anonymous `comparison.md` downloads and optional share-pack inclusion. Reports use independent `endpoint-N` IDs, complete recording summaries, and up to 100 endpoint rows by change priority; original route identities and alias mappings are omitted.
+- Kept baselines in local Worker memory and discarded them when importing a new current recording, removing the baseline, clearing the session, or reloading the page. Stale comparison replies and ZIP downloads cannot restore old state.
+- Bounded original request-header previews before assembling or escaping strings, with truncation notices for oversized values or header lists.
+
 ## 0.2.0
 
 - Added explainable triage observations and clickable request filters for network failures, HTTP errors, slow phases and repeated endpoints.

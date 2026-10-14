@@ -1,6 +1,6 @@
 {
   "name": "tracetidy",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A local-first HAR workbench for network investigation and careful sharing.",
   "type": "module",
   "private": true,

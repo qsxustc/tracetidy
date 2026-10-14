@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { VERSION } from '../src/version.js';
 import { validateHar, sanitizeHar, summarizeHar, buildReport } from '../src/har.js';
 
 function entry(overrides = {}) {
@@ -174,7 +175,7 @@ test('rebuilds standard HAR and drops hidden secrets at every structural level',
   assert.ok(!JSON.stringify(cleaned).includes('SENTINEL_'));
   assert.deepEqual(Object.keys(cleaned), ['log']);
   assert.deepEqual(Object.keys(cleaned.log), ['version', 'creator', 'entries']);
-  assert.deepEqual(cleaned.log.creator, { name: 'TraceTidy', version: '0.2.0' });
+  assert.deepEqual(cleaned.log.creator, { name: 'TraceTidy', version: VERSION });
   const output = cleaned.log.entries[0];
   assert.equal(output.request.method, 'OTHER');
   assert.equal(output.request.httpVersion, 'HTTP/1.1');
@@ -283,7 +284,7 @@ test('custom terms fail closed when they corrupt fixed HAR structure, and later 
     });
     const recovered = sanitizeHar(original);
     assert.equal(recovered.har.log.version, '1.2');
-    assert.equal(recovered.har.log.creator.version, '0.2.0');
+    assert.equal(recovered.har.log.creator.version, VERSION);
     assert.equal(recovered.har.log.entries[0].request.httpVersion, 'HTTP/2.0');
     assert.equal(new URL(recovered.har.log.entries[0].request.url).hostname, 'host-1.invalid');
   }

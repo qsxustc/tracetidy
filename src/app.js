@@ -1,6 +1,7 @@
 import { TraceProcessor } from './processor.js';
 import { words } from './i18n.js';
 import { VERSION } from './version.js';
+import { formatHeaderPreview } from './preview.js';
 
 const app = document.querySelector('#app');
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -11,6 +12,7 @@ catch (error) { processorError = error.message; }
 let sessionGeneration = 0;
 let snapshotRevision = 0;
 let snapshotTimer;
+let comparisonRevision = 0;
 const emptyDraft = () => ({ title: '', steps: '', expected: '', actual: '' });
 const state = {
   lang: navigator.language.startsWith('zh') ? 'zh' : 'en',
@@ -19,7 +21,9 @@ const state = {
   tab: 'requests', selected: 0, search: '', filter: 'all', sort: 'time', page: 0,
   filename: '', demo: false, preserveRoutes: false, terms: '', preview: 'har',
   busy: false, processing: false, exporting: false, finding: null,
-  view: 'requests', draft: emptyDraft(), filterCache: null
+  view: 'requests', draft: emptyDraft(), filterCache: null,
+  comparison: null, comparisonText: '', baselineFilename: '', comparisonLoading: false, comparisonError: '',
+  comparisonFilter: 'all', comparisonSearch: '', comparisonPage: 0, latencyMs: 100, latencyPercent: 20
 };
 
 const t = key => words[state.lang][key] || key;
@@ -52,7 +56,7 @@ function refreshExportViews() {
     if (preview) preview.textContent = state.processing ? t('snapshotBusy') : state.exportError || state.reportText;
   }
   document.querySelectorAll('[data-export]').forEach(button => {
-    button.disabled = !state.safe || state.busy || state.processing || state.exporting;
+    button.disabled = !state.safe || state.busy || state.processing || state.exporting || (button.dataset.action === 'bundle' && state.comparisonLoading);
   });
 }
 function scheduleSnapshot() {
@@ -86,7 +90,7 @@ function render() {
   app.innerHTML = `<aside class="sidebar">
     <a class="brand" href="./" aria-label="TraceTidy"><img src="./public/icon.svg" alt="" width="34" height="34"><span>Trace<span class="brand-light">Tidy</span><small>HAR WORKBENCH</small></span></a>
     <div class="sidebar-label">${t('workspace')}</div>
-    <nav aria-label="${t('workspace')}">${[['requests','activity','workbench'],['share','shield','share'],['report','file','report']].map(([id,i,label]) => `<button data-tab="${id}" class="nav-item ${state.tab === id ? 'active' : ''}" ${state.har ? '' : 'disabled'}>${icon(i)}${t(label)}${state.tab === id ? '<span class="nav-dot"></span>' : ''}</button>`).join('')}</nav>
+    <nav aria-label="${t('workspace')}">${[['requests','activity','workbench'],['compare','clock','compare'],['share','shield','share'],['report','file','report']].map(([id,i,label]) => `<button data-tab="${id}" class="nav-item ${state.tab === id ? 'active' : ''}" ${state.har ? '' : 'disabled'}>${icon(i)}${t(label)}${state.tab === id ? '<span class="nav-dot"></span>' : ''}</button>`).join('')}</nav>
     <div class="sidebar-art" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
     <div class="steps"><small>${t('stepTitle')}</small>${[1,2,3].map(n=>`<div><b>0${n}</b><span>${t('step'+n)}</span></div>`).join('')}</div>
     <div class="sidebar-bottom"><div class="local-status"><i></i>${t('live')}</div><p>${t('noUpload')}</p><button class="text-button" data-action="about">${icon('info',15)}${t('privacy')}</button><a class="source-link" href="https://github.com/qsxustc/tracetidy" target="_blank" rel="noopener noreferrer">${t('github')}${icon('arrow',12)}</a><small>v${VERSION} · MIT</small></div>
@@ -95,9 +99,11 @@ function render() {
   <main><section class="hero"><div><div class="eyebrow"><span></span>${t('badge')}</div><h1>${t('headline')}</h1><p>${t('intro')}</p></div><div class="hero-actions"><button class="button secondary" data-action="demo">${icon('activity')}${t('demo')}</button><button class="button primary" data-action="import">${icon('upload')}${t('import')}</button></div></section>
   <div id="main-content"></div><footer class="footer"><span>${icon('lock',13)}${t('unsaved')}</span><button class="text-button" data-action="about">${t('about')}${icon('arrow',14)}</button></footer></main></div>
   <input id="file-input" type="file" accept=".har,.json,application/json" hidden>
+  <input id="baseline-input" type="file" accept=".har,.json,application/json" hidden>
   <div class="drop-overlay" aria-hidden="true"><div>${icon('upload',48)}<h2>${t('drop')}</h2><p>${t('dropSmall')}</p></div></div>
   <dialog id="help-dialog"><button class="icon-button dialog-close" data-action="close-help" aria-label="${t('close')}">${icon('close')}</button><div class="eyebrow">TRACETIDY / ${t('local')}</div><h2>${t('helpTitle')}</h2><p>${t('helpText')}</p><p>${t('helpList')}</p><div class="notice">${icon('info')}<p>${t('helpLimit')}</p></div><p>${t('helpCli')}</p><button class="button primary" data-action="close-help">${t('close')}</button></dialog>`;
   document.querySelector('#file-input').addEventListener('change', e => { if(e.target.files[0]) loadFile(e.target.files[0]); e.target.value = ''; });
+  document.querySelector('#baseline-input').addEventListener('change', e => { if (e.target.files[0]) loadBaselineFile(e.target.files[0]); e.target.value = ''; });
   renderMain();
   refreshExportViews();
 }
@@ -116,8 +122,9 @@ function renderMain() {
       [t('span'),ms(s.durationMs),t('walltime'),'neutral'],
       [t('transferred'),bytes(s.totalBytes),t('reported'),'neutral']
     ].map(([label,value,note,color])=>`<div class="stat"><span>${label}</span><strong class="${color}">${esc(value)}</strong><small>${note}</small></div>`).join('')}</section>
-    <div class="workspace-tabs" role="tablist" aria-label="Workbench views">${[['requests','workbench'],['share','share'],['report','report']].map(([id,label])=>`<button role="tab" id="tab-${id}" tabindex="${state.tab === id ? 0 : -1}" aria-controls="panel" aria-selected="${state.tab === id}" data-tab="${id}" class="${state.tab === id ? 'selected' : ''}">${t(label)}${id === 'share' ? '<span class="tab-tag">STRICT</span>' : ''}</button>`).join('')}<span class="workspace-meta">${icon('lock',12)}${t('local')}</span></div><section id="panel" role="tabpanel" aria-labelledby="tab-${state.tab}"></section>`;
+    <div class="workspace-tabs" role="tablist" aria-label="Workbench views">${[['requests','workbench'],['compare','compare'],['share','share'],['report','report']].map(([id,label])=>`<button role="tab" id="tab-${id}" tabindex="${state.tab === id ? 0 : -1}" aria-controls="panel" aria-selected="${state.tab === id}" data-tab="${id}" class="${state.tab === id ? 'selected' : ''}">${t(label)}${id === 'share' ? '<span class="tab-tag">STRICT</span>' : ''}</button>`).join('')}<span class="workspace-meta">${icon('lock',12)}${t('local')}</span></div><section id="panel" role="tabpanel" aria-labelledby="tab-${state.tab}"></section>`;
   if (state.tab === 'requests') renderRequests();
+  else if (state.tab === 'compare') renderCompare();
   else if (state.tab === 'share') renderShare();
   else renderReport();
 }
@@ -169,9 +176,89 @@ function renderInspector() {
   const entry=state.har.log.entries[item.index], timing=entry.timings || {};
   const recordedTiming=key=>typeof timing[key]==='number'&&Number.isFinite(timing[key])?Math.max(0,timing[key]):0;
   const timingRows=[[t('blocked'),recordedTiming('blocked'),'muted'],[t('connection'),recordedTiming('connect')+recordedTiming('dns'),'blue'],[t('waiting'),recordedTiming('wait'),'lime'],[t('receive'),recordedTiming('receive'),'purple']];
-  const originalHeaders=Array.isArray(entry.request.headers) ? entry.request.headers.filter(h=>h&&typeof h==='object').map(h=>`${typeof h.name==='string'?h.name:'?'}: ${typeof h.value==='string'?h.value:'?'}`).join('\n') : '';
-  el.innerHTML=`<div class="inspector-heading"><span>${t('details')}</span>${icon('activity',15)}</div><div class="inspector-status"><span class="status ${item.failed?'status-fail':'status-ok'}">${item.status || 'ERR'}</span><small>${t('original')}</small></div><h3>${esc(item.path || '/')}</h3><div class="original-url">${esc(item.url)}</div><div class="detail-pairs"><div><span>${t('method')}</span><b>${esc(item.method)}</b></div><div><span>${t('duration')}</span><b>${ms(item.time)}</b></div><div><span>${t('elapsed')}</span><b>${ms(item.startOffset)}</b></div><div><span>${t('contentType')}</span><b>${esc(item.mimeType || '—')}</b></div></div><div class="timing-title">TIMING BREAKDOWN</div><div class="timing-rows">${timingRows.map(([label,value,color])=>`<div><span>${label}</span><b>${ms(Math.max(0,Number.isFinite(value)?value:0))}</b><i style="width:${Math.min(100,Math.max(1,(Number.isFinite(value)?value:0)/Math.max(item.time,1)*100))}%" class="timing-${color}"></i></div>`).join('')}</div><details class="headers-details"><summary>${t('raw')}</summary><p>${t('rawWarning')}</p><pre>${esc(originalHeaders || t('noHeaders'))}</pre></details><p class="local-note">${t('localNote')}</p><button class="button inspector-button" data-tab="share">${icon('shield',15)}${t('openShare')}${icon('arrow',15)}</button>`;
+  const originalHeaders = formatHeaderPreview(entry.request.headers);
+  el.innerHTML=`<div class="inspector-heading"><span>${t('details')}</span>${icon('activity',15)}</div><div class="inspector-status"><span class="status ${item.failed?'status-fail':'status-ok'}">${item.status || 'ERR'}</span><small>${t('original')}</small></div><h3>${esc(item.path || '/')}</h3><div class="original-url">${esc(item.url)}</div><div class="detail-pairs"><div><span>${t('method')}</span><b>${esc(item.method)}</b></div><div><span>${t('duration')}</span><b>${ms(item.time)}</b></div><div><span>${t('elapsed')}</span><b>${ms(item.startOffset)}</b></div><div><span>${t('contentType')}</span><b>${esc(item.mimeType || '—')}</b></div></div><div class="timing-title">TIMING BREAKDOWN</div><div class="timing-rows">${timingRows.map(([label,value,color])=>`<div><span>${label}</span><b>${ms(Math.max(0,Number.isFinite(value)?value:0))}</b><i style="width:${Math.min(100,Math.max(1,(Number.isFinite(value)?value:0)/Math.max(item.time,1)*100))}%" class="timing-${color}"></i></div>`).join('')}</div><details class="headers-details"><summary>${t('raw')}</summary><p>${t('rawWarning')}</p><pre>${esc(originalHeaders.text || t('noHeaders'))}</pre>${originalHeaders.truncated ? `<p>${t('headersTruncated')}</p>` : ''}</details><p class="local-note">${t('localNote')}</p><button class="button inspector-button" data-tab="share">${icon('shield',15)}${t('openShare')}${icon('arrow',15)}</button>`;
 }
+
+const percent = n => `${(n * 100).toFixed(1)}%`;
+const signed = (n, format = value => String(value)) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${format(Math.abs(n))}`;
+function renderCompare() {
+  const comparison = state.comparison;
+  document.querySelector('#panel').innerHTML = `<section class="comparison-intro"><div><div class="eyebrow">${t('compareBadge')}</div><h2>${t('compareTitle')}</h2><p>${t('compareIntro')}</p></div><button class="button secondary" data-action="comparison-report" ${!state.comparisonText || state.comparisonLoading ? 'disabled' : ''}>${icon('download',16)}${t('downloadComparison')}</button></section>
+  <div class="comparison-files"><section class="comparison-file"><span class="comparison-label">01 / ${t('baseline')}</span><strong>${esc(state.baselineFilename || t('noBaseline'))}</strong><p>${t('baselineHint')}</p><div><button class="button secondary" data-action="baseline-import">${icon('upload',15)}${t(state.baselineFilename ? 'replaceBaseline' : 'importBaseline')}</button><button class="text-button" data-action="baseline-demo">${t('compareSample')}</button>${state.baselineFilename ? `<button class="text-button" data-action="baseline-clear">${icon('close',13)}${t('removeBaseline')}</button>` : ''}</div></section><section class="comparison-file current-file"><span class="comparison-label">02 / ${t('current')}</span><strong>${esc(state.filename)}</strong><p>${t('currentHint')}</p><div><span class="file-tag">${t('local')}</span><span>${state.summary.requestCount} ${t('requests')}</span></div></section></div>
+  <div class="comparison-thresholds"><span>${t('regressionRule')}</span><label for="latency-ms">P95 +<input id="latency-ms" type="number" required min="0" max="60000" step="1" value="${state.latencyMs}" ${!comparison || state.comparisonLoading ? 'disabled' : ''}> ms</label><span>${t('and')}</span><label for="latency-percent">+<input id="latency-percent" type="number" required min="0" max="1000" step="1" value="${state.latencyPercent}" ${!comparison || state.comparisonLoading ? 'disabled' : ''}> %</label><button class="button secondary" data-action="comparison-apply" ${!comparison || state.comparisonLoading ? 'disabled' : ''}>${t('applyThresholds')}</button><small>${t('failureRule')}</small></div>
+  <div id="comparison-status" aria-live="polite">${state.comparisonLoading ? `<p class="comparison-message">${t('comparisonBusy')}</p>` : state.comparisonError ? `<p class="comparison-message comparison-error">${esc(state.comparisonError)}</p>` : ''}</div>
+  ${comparison && !state.comparisonLoading ? `<section class="comparison-summary" aria-label="${t('comparisonSummary')}">${[['p95',ms(comparison.baseline.p95Ms),ms(comparison.current.p95Ms)],['failureRate',percent(comparison.baseline.failureRate),percent(comparison.current.failureRate)],['requests',comparison.baseline.requestCount,comparison.current.requestCount],['transferred',bytes(comparison.baseline.totalBytes),bytes(comparison.current.totalBytes)]].map(([label,before,after])=>`<div><span>${t(label)}</span><strong>${before}<i>→</i>${after}</strong><small>${t('baseline')} → ${t('current')}</small></div>`).join('')}</section><div class="comparison-tools"><label class="search">${icon('search',17)}<input id="comparison-search" type="search" value="${esc(state.comparisonSearch)}" placeholder="${t('compareSearch')}" aria-label="${t('compareSearch')}"></label><select id="comparison-filter" aria-label="${t('compareFilter')}">${['all','regressed','improved','added','removed','unchanged'].map(key=>`<option value="${key}" ${state.comparisonFilter===key?'selected':''}>${t('compare-'+key)}${key==='all'?'':` (${comparison.counts[key]})`}</option>`).join('')}</select></div><div id="comparison-rows"></div><details class="comparison-report-preview"><summary>${t('comparisonPreview')}</summary><p class="field-hint">${t('comparisonReportHint')}</p><pre>${esc(state.comparisonText.length > 180000 ? state.comparisonText.slice(0,180000)+`\n… ${t('previewTruncated')}` : state.comparisonText)}</pre></details>` : !state.comparisonLoading && !state.comparisonError ? `<div class="comparison-empty">${icon('clock',32)}<h3>${t('compareEmpty')}</h3><p>${t('compareEmptyHint')}</p></div>` : ''}
+  <p class="comparison-caveat">${icon('info',15)}${t('compareCaveat')}</p>`;
+  document.querySelector('#comparison-search')?.addEventListener('input', event => { state.comparisonSearch = event.target.value; state.comparisonPage = 0; renderComparisonRows(); });
+  document.querySelector('#comparison-filter')?.addEventListener('change', event => { state.comparisonFilter = event.target.value; state.comparisonPage = 0; renderComparisonRows(); });
+  if (comparison && !state.comparisonLoading) renderComparisonRows();
+}
+function renderComparisonRows() {
+  const container = document.querySelector('#comparison-rows');
+  if (!container || !state.comparison) return;
+  const search = state.comparisonSearch.toLowerCase();
+  const endpoints = state.comparison.endpoints.filter(endpoint => (state.comparisonFilter === 'all' || endpoint.classification === state.comparisonFilter) && `${endpoint.method} ${endpoint.url}`.toLowerCase().includes(search));
+  const PAGE = 50;
+  state.comparisonPage = Math.min(Math.max(0,state.comparisonPage),Math.max(0,Math.ceil(endpoints.length/PAGE)-1));
+  const visible = endpoints.slice(state.comparisonPage*PAGE,(state.comparisonPage+1)*PAGE);
+  const pair = (endpoint, key, format = value => String(value)) => `${endpoint.baseline ? format(endpoint.baseline[key]) : '—'} <span class="comparison-arrow">→</span> ${endpoint.current ? format(endpoint.current[key]) : '—'}`;
+  container.innerHTML = `<div class="table-scroll"><table class="comparison-table"><thead><tr><th>${t('endpoint')}</th><th>${t('change')}</th><th>${t('calls')}</th><th>P95 / ${t('baseline')} → ${t('current')}</th><th>Δ P95</th><th>${t('failureRate')}</th></tr></thead><tbody>${visible.map(endpoint=>`<tr><td><button class="request-name" data-comparison-endpoint="${endpoint.id}" ${!endpoint.currentIndices.length?'disabled':''} title="${esc(endpoint.url)} · ${t('viewMatching')}"><span class="method">${esc(endpoint.method)}</span><span><strong>${esc(endpoint.path)}</strong><small>${esc(endpoint.host)}</small></span></button><small class="comparison-id">${endpoint.id}</small></td><td><span class="change-badge change-${endpoint.classification}">${t('compare-'+endpoint.classification)}</span></td><td>${pair(endpoint,'count')}</td><td>${pair(endpoint,'p95Ms',ms)}</td><td class="${endpoint.delta.p95Ms>0?'delta-up':endpoint.delta.p95Ms<0?'delta-down':''}">${endpoint.baseline&&endpoint.current ? `${signed(endpoint.delta.p95Ms,ms)}<small>${endpoint.delta.p95MsPercent===null?t('noPercentage'):signed(endpoint.delta.p95MsPercent,n=>`${n.toFixed(1)}%`)}</small>` : '—'}</td><td>${pair(endpoint,'failureRate',percent)}<small>${endpoint.baseline&&endpoint.current?signed(endpoint.delta.failureRate*100,n=>`${n.toFixed(1)} pp`):''}</small></td></tr>`).join('')}</tbody></table>${!visible.length?`<div class="no-matches">${t('compareNoMatches')}</div>`:''}</div><div class="table-bottom"><span>${endpoints.length} ${t('endpointView')} · ${t('baseline')} → ${t('current')}</span><div><button class="icon-button" data-action="comparison-previous" ${state.comparisonPage===0?'disabled':''} aria-label="${t('previous')}">‹</button><span>${endpoints.length?state.comparisonPage*PAGE+1:0}–${Math.min(endpoints.length,(state.comparisonPage+1)*PAGE)} / ${endpoints.length}</span><button class="icon-button" data-action="comparison-next" ${(state.comparisonPage+1)*PAGE>=endpoints.length?'disabled':''} aria-label="${t('next')}">›</button></div></div>`;
+}
+function refreshComparison() {
+  if (state.tab === 'compare') renderCompare();
+  refreshExportViews();
+}
+async function clearBaseline() {
+  const revision = ++comparisonRevision, generation = sessionGeneration;
+  state.comparison = null; state.comparisonText = ''; state.baselineFilename = ''; state.comparisonLoading = false; state.comparisonError = '';
+  refreshComparison();
+  try { await processor.clearBaseline(); }
+  catch (error) {
+    if (revision === comparisonRevision && generation === sessionGeneration && error.name !== 'AbortError') { state.comparisonError = error.message; refreshComparison(); }
+  }
+}
+async function loadBaselineFile(file) {
+  if (file.size > MAX_BYTES) { toast(t('fileError'),true); return; }
+  await loadBaselineSource(() => file.text(), file.name);
+}
+async function loadBaselineSource(readSource, filename) {
+  if (!state.har || state.busy || !processor) return;
+  const revision = ++comparisonRevision, generation = sessionGeneration;
+  state.comparison = null; state.comparisonText = ''; state.baselineFilename = filename; state.comparisonLoading = true; state.comparisonError = ''; state.comparisonPage = 0;
+  refreshComparison();
+  try {
+    await processor.clearBaseline();
+    if (revision !== comparisonRevision || generation !== sessionGeneration) return;
+    const source = await readSource();
+    if (revision !== comparisonRevision || generation !== sessionGeneration) return;
+    let result = await processor.setBaseline(source);
+    if (revision !== comparisonRevision || generation !== sessionGeneration) return;
+    if (state.latencyMs !== 100 || state.latencyPercent !== 20) result = await processor.compare({latencyMs:state.latencyMs,latencyPercent:state.latencyPercent});
+    if (revision !== comparisonRevision || generation !== sessionGeneration) return;
+    state.comparison = result.comparison; state.comparisonText = result.comparisonText; state.comparisonLoading = false;
+  } catch (error) {
+    if (revision !== comparisonRevision || generation !== sessionGeneration || error.name === 'AbortError') return;
+    state.comparisonLoading = false; state.comparisonError = error.message;
+  }
+  refreshComparison();
+}
+async function recalculateComparison() {
+  if (!state.comparison || state.comparisonLoading) return;
+  const revision = ++comparisonRevision, generation = sessionGeneration;
+  state.comparisonLoading = true; state.comparisonText = ''; state.comparisonError = '';
+  refreshComparison();
+  try {
+    const result = await processor.compare({latencyMs:state.latencyMs,latencyPercent:state.latencyPercent});
+    if (revision !== comparisonRevision || generation !== sessionGeneration) return;
+    state.comparison = result.comparison; state.comparisonText = result.comparisonText; state.comparisonLoading = false;
+  } catch (error) {
+    if (revision !== comparisonRevision || generation !== sessionGeneration || error.name === 'AbortError') return;
+    state.comparison = null; state.comparisonLoading = false; state.comparisonError = error.message;
+  }
+  refreshComparison();
+}
+
 function renderShare() {
   document.querySelector('#panel').innerHTML = `<div class="share-layout"><section class="policy-panel"><div class="eyebrow">${t('strategy')}</div><h2>${t('reviewTitle')}</h2><p>${t('reviewIntro')}</p><div class="policy-badge">${icon('shield',20)}<div><strong>${routingLabel()}</strong><span>${routingDescription()}</span></div></div><label class="toggle-row"><span><strong>${t('preserve')}</strong><small>${t('preserveHint')}</small></span><input id="preserve-routes" type="checkbox" ${state.preserveRoutes?'checked':''}><span class="toggle-track" aria-hidden="true"></span></label><label class="custom-label" for="custom-terms">${t('custom')}</label><textarea id="custom-terms" rows="3" maxlength="4096" placeholder="${t('customPlaceholder')}">${esc(state.terms)}</textarea><small class="field-hint">${t('customHint')}</small><div id="audit-cards"></div><div class="notice">${icon('info',17)}<p>${t('reviewWarning')}</p></div></section><section class="export-panel"><div class="preview-heading"><span>${t('preview')}</span><div><button class="preview-tab ${state.preview==='har'?'active':''}" data-preview="har">${t('cleaned')}</button><button class="preview-tab ${state.preview==='audit'?'active':''}" data-preview="audit">${t('audit')}</button></div></div><pre id="export-preview" tabindex="0"></pre><div class="export-actions"><button class="button primary" data-action="bundle">${icon('download')}${t('download')}</button><button class="button secondary" data-action="har">${t('downloadHar')}</button><p>${t('packHint')}</p></div></section></div>`;
   document.querySelectorAll('.export-actions button').forEach(button=>button.dataset.export='');
@@ -208,11 +295,14 @@ function resetTrace() {
     har:null,summary:null,insights:null,safe:null,audit:null,harText:'',reportText:'',auditText:'',
     terms:'',filename:'',tab:'requests',search:'',filter:'all',sort:'time',page:0,preserveRoutes:false,
     busy:false,processing:false,exporting:false,exportError:'',finding:null,view:'requests',
-    draft:emptyDraft(),filterCache:null
+    draft:emptyDraft(),filterCache:null,
+    comparison:null,comparisonText:'',baselineFilename:'',comparisonLoading:false,comparisonError:'',
+    comparisonFilter:'all',comparisonSearch:'',comparisonPage:0,latencyMs:100,latencyPercent:20
   });
 }
 function clearSession() {
   sessionGeneration++;
+  comparisonRevision++;
   snapshotRevision++;
   clearTimeout(snapshotTimer);
   processor?.clear();
@@ -252,7 +342,7 @@ async function loadSource(readSource,filename,demo) {
 async function loadDemo() {
   await loadSource(async()=>{
     const response=await fetch('./samples/demo.har');
-    if(!response.ok)throw new Error('Sample unavailable');
+    if(!response.ok)throw new Error(t('sampleUnavailable'));
     return response.text();
   },'demo.har',true);
 }
@@ -261,6 +351,16 @@ function download(content,name,type='application/json') {
   const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 app.addEventListener('click', async event => {
+  const comparisonEndpoint = event.target.closest('[data-comparison-endpoint]');
+  if (comparisonEndpoint) {
+    const endpoint = state.comparison?.endpoints.find(item => item.id === comparisonEndpoint.dataset.comparisonEndpoint);
+    if (!endpoint?.currentIndices.length) return;
+    state.finding = { id: `comparison-${endpoint.id}`, title: `${endpoint.method} ${endpoint.path}`, indices: new Set(endpoint.currentIndices) };
+    state.view = 'requests'; state.page = 0; state.search = ''; state.filter = 'all';
+    state.selected = endpoint.currentIndices[0]; state.tab = 'requests'; render();
+    document.querySelector(`[data-select="${state.selected}"]`)?.focus();
+    return;
+  }
   const select = event.target.closest('[data-select]');
   if (select) {
     state.selected = Number(select.dataset.select);
@@ -316,6 +416,26 @@ app.addEventListener('click', async event => {
   const action = button.dataset.action;
   if (action === 'import') document.querySelector('#file-input').click();
   else if (action === 'demo') await loadDemo();
+  else if (action === 'baseline-import') document.querySelector('#baseline-input').click();
+  else if (action === 'baseline-demo') await loadBaselineSource(async () => {
+    const response = await fetch('./samples/baseline.har');
+    if (!response.ok) throw new Error(t('sampleUnavailable'));
+    return response.text();
+  }, 'baseline.har');
+  else if (action === 'baseline-clear') await clearBaseline();
+  else if (action === 'comparison-apply') {
+    const abs = document.querySelector('#latency-ms'), relative = document.querySelector('#latency-percent');
+    if (!abs.reportValidity() || !relative.reportValidity()) return;
+    state.latencyMs = Number(abs.value); state.latencyPercent = Number(relative.value);
+    await recalculateComparison();
+  }
+  else if (action === 'comparison-report') {
+    if (state.comparisonText && !state.comparisonLoading) download(state.comparisonText, 'comparison.md', 'text/markdown;charset=utf-8');
+  }
+  else if (action === 'comparison-previous' || action === 'comparison-next') {
+    state.comparisonPage += action === 'comparison-next' ? 1 : -1; renderComparisonRows();
+    document.querySelector(`[data-action="${action}"]`)?.focus();
+  }
   else if (action === 'language') {
     state.lang = state.lang === 'en' ? 'zh' : 'en';
     clearTimeout(toast.timer);
@@ -329,20 +449,20 @@ app.addEventListener('click', async event => {
   else if (action === 'clear-finding') { state.finding = null; state.page = 0; renderRequests(); document.querySelector('#search-input').focus(); }
   else if (action === 'previous' || action === 'next') { state.page += action === 'next' ? 1 : -1; renderRows(); document.querySelector(`[data-action="${action}"]`)?.focus(); }
   else if (['har', 'report', 'bundle', 'copy'].includes(action)) {
-    if (!state.safe || state.busy || state.processing || state.exporting) return;
+    if (!state.safe || state.busy || state.processing || state.exporting || (action === 'bundle' && state.comparisonLoading)) return;
     if (action === 'har') download(state.harText, 'safe.har');
     else if (action === 'report') download(state.reportText, 'issue.md', 'text/markdown;charset=utf-8');
     else if (action === 'copy') {
       try { await navigator.clipboard.writeText(state.reportText); toast(t('copied')); }
       catch { toast(t('copyFailed'), true); }
     } else {
-      const generation = sessionGeneration, revision = snapshotRevision;
+      const generation = sessionGeneration, revision = snapshotRevision, comparisonVersion = comparisonRevision;
       state.exporting = true;
       refreshExportViews();
       toast(t('preparing'));
       try {
         const blob = await processor.bundle();
-        if (generation !== sessionGeneration || revision !== snapshotRevision) return;
+        if (generation !== sessionGeneration || revision !== snapshotRevision || comparisonVersion !== comparisonRevision) return;
         download(blob, 'tracetidy-share.zip');
         toast(t('ready'));
       } catch (error) {
@@ -356,7 +476,7 @@ app.addEventListener('click', async event => {
 app.addEventListener('keydown',e=>{
   if((e.key==='Enter'||e.key===' ')&&e.target.matches('.empty-import')){e.preventDefault();document.querySelector('#file-input').click();}
   if(e.target.matches('[role="tab"]')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){
-    e.preventDefault();const tabs=[...document.querySelectorAll('[role="tab"]')];const index=tabs.indexOf(e.target);const n=e.key==='Home'?0:e.key==='End'?2:(index+(e.key==='ArrowRight'?1:2))%3;state.tab=tabs[n].dataset.tab;render();document.querySelector(`#tab-${state.tab}`).focus();
+    e.preventDefault();const tabs=[...document.querySelectorAll('[role="tab"]')];const index=tabs.indexOf(e.target);const n=e.key==='Home'?0:e.key==='End'?tabs.length-1:(index+(e.key==='ArrowRight'?1:tabs.length-1))%tabs.length;state.tab=tabs[n].dataset.tab;render();document.querySelector(`#tab-${state.tab}`).focus();
   }
 });
 let dragDepth=0;

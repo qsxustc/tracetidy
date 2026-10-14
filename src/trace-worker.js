@@ -1,5 +1,6 @@
 import { validateHar, summarizeHar, sanitizeHar, buildReport } from './har.js';
 import { analyzeTrace } from './insights.js';
+import { compareTraces, buildComparisonMarkdown } from './compare.js';
 import { createZip } from './zip.js';
 
 // Only these core messages are safe to return. Native parser/worker errors can
@@ -20,6 +21,8 @@ const SAFE_CORE_MESSAGES = new Set([
   'Report details must be an object with an optional title and notes.',
   'The report title must be a string of at most 240 characters.',
   'Report notes must be a string of at most 5,000 characters.',
+  'Comparison settings must be an object with latency thresholds.',
+  'Latency thresholds must be finite, non-negative numbers within the supported range.',
 ]);
 const SAFE_REQUEST_MESSAGE = /^Request [1-9]\d* (?:is missing its request or response object\. Export a fresh HAR file\.|is missing a URL\. Export a fresh HAR file\.|has a URL longer than 32 KB\. Export a smaller recording or remove this request\.)$/;
 
@@ -54,10 +57,28 @@ function shareSnapshot(result, preserveRoutes, reportDetails = {}) {
   };
 }
 
+function comparisonOptions(options = {}) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('Comparison settings must be an object with latency thresholds.');
+  }
+  const { latencyMs = 100, latencyPercent = 20 } = options;
+  if (![latencyMs, latencyPercent].every((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    || latencyMs > 30 * 24 * 60 * 60 * 1000 || latencyPercent > Number.MAX_SAFE_INTEGER) {
+    throw new Error('Latency thresholds must be finite, non-negative numbers within the supported range.');
+  }
+  return { latencyMs, latencyPercent };
+}
+
 /** Separate instances own separate caches; exported for worker protocol tests. */
 export function createTraceWorkerHandler(postMessage) {
   let currentHar = null;
   let snapshot = null;
+  let baselineHar = null;
+  let comparisonSnapshot = null;
+  const buildComparison = (options) => {
+    const comparison = compareTraces(baselineHar, currentHar, options);
+    return { comparison, comparisonText: buildComparisonMarkdown(comparison) };
+  };
   return ({ data }) => {
     if (!data || !Number.isSafeInteger(data.requestId)) return;
     const { requestId, kind } = data;
@@ -67,6 +88,8 @@ export function createTraceWorkerHandler(postMessage) {
       if (kind === 'load') {
         currentHar = null;
         snapshot = null;
+        baselineHar = null;
+        comparisonSnapshot = null;
         errorName = 'TraceValidationError';
         if (typeof data.source !== 'string') {
           postMessage({ requestId, ok: false, error: { name: 'TraceValidationError', message: 'Choose a HAR JSON file to load as text.' } });
@@ -95,12 +118,54 @@ export function createTraceWorkerHandler(postMessage) {
         errorName = 'TraceProcessingError';
         snapshot = shareSnapshot(cleaned, options.preserveRoutes, reportDetails);
         payload = snapshot;
+      } else if (kind === 'setBaseline') {
+        // Replacement starts by discarding both caches, including when its
+        // source or comparison fails validation.
+        baselineHar = null;
+        comparisonSnapshot = null;
+        if (!currentHar) {
+          postMessage({ requestId, ok: false, error: { name: 'NoTraceError', message: 'Import a HAR recording before comparing a baseline.' } });
+          return;
+        }
+        errorName = 'TraceValidationError';
+        if (typeof data.source !== 'string') {
+          postMessage({ requestId, ok: false, error: { name: 'TraceValidationError', message: 'Choose a HAR JSON file to load as a baseline.' } });
+          return;
+        }
+        baselineHar = validateHar(data.source);
+        errorName = 'TraceProcessingError';
+        comparisonSnapshot = buildComparison({ latencyMs: 100, latencyPercent: 20 });
+        payload = comparisonSnapshot;
+      } else if (kind === 'compare') {
+        comparisonSnapshot = null;
+        if (!currentHar) {
+          postMessage({ requestId, ok: false, error: { name: 'NoTraceError', message: 'Import a HAR recording before comparing a baseline.' } });
+          return;
+        }
+        if (!baselineHar) {
+          postMessage({ requestId, ok: false, error: { name: 'NoBaselineError', message: 'Import a baseline HAR recording before comparing traces.' } });
+          return;
+        }
+        errorName = 'ComparisonValidationError';
+        const options = comparisonOptions(data.options);
+        errorName = 'TraceProcessingError';
+        comparisonSnapshot = buildComparison(options);
+        payload = comparisonSnapshot;
+      } else if (kind === 'clearBaseline') {
+        baselineHar = null;
+        comparisonSnapshot = null;
+        payload = { comparison: null, comparisonText: '' };
       } else if (kind === 'bundle') {
         if (!snapshot) {
           postMessage({ requestId, ok: false, error: { name: 'NoSnapshotError', message: 'Wait for a successful share preview before downloading a share pack.' } });
           return;
         }
-        payload = createZip({ 'safe.har': snapshot.harText, 'issue.md': snapshot.reportText, 'audit.json': snapshot.auditText });
+        payload = createZip({
+          'safe.har': snapshot.harText,
+          'issue.md': snapshot.reportText,
+          'audit.json': snapshot.auditText,
+          ...(comparisonSnapshot ? { 'comparison.md': comparisonSnapshot.comparisonText } : {}),
+        });
       } else {
         postMessage({ requestId, ok: false, error: { name: 'WorkerMessageError', message: 'The trace worker received an unsupported operation.' } });
         return;
@@ -109,6 +174,8 @@ export function createTraceWorkerHandler(postMessage) {
     } catch (error) {
       if (kind === 'load') currentHar = null;
       if (kind === 'load' || kind === 'redact') snapshot = null;
+      if (kind === 'load' || kind === 'setBaseline') baselineHar = null;
+      if (kind === 'load' || kind === 'setBaseline' || kind === 'compare') comparisonSnapshot = null;
       postMessage({ requestId, ok: false, error: safeError(error, errorName) });
     }
   };

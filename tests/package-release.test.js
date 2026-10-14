@@ -9,7 +9,7 @@ import path from 'node:path';
 import { packageRelease } from '../scripts/package-release.js';
 
 const runFile = promisify(execFile);
-const staticNames = ['index.html', 'src/app.js', 'src/trace-worker.js', 'public/icon.svg', 'samples/demo.har'];
+const staticNames = ['index.html', 'src/app.js', 'src/trace-worker.js', 'public/icon.svg', 'samples/demo.har', 'samples/baseline.har'];
 
 async function commit(root) {
   await runFile('git', ['add', '--', '.'], { cwd: root });
@@ -31,6 +31,7 @@ async function fixture(t) {
     'src/trace-worker.js': 'self.onmessage = () => {};\n',
     'public/icon.svg': '<svg xmlns="http://www.w3.org/2000/svg"/>\n',
     'samples/demo.har': '{"log":{"entries":[],"creator":{"name":"synthetic fixture"}}}\n',
+    'samples/baseline.har': '{"log":{"entries":[],"creator":{"name":"synthetic baseline fixture"}}}\n',
     '.openai/hosting.json': '{"fixture":"excluded hosting metadata"}\n',
   };
   for (const [name, value] of Object.entries(files)) {
@@ -59,8 +60,13 @@ test('release archives contain tracked public files only and hashes identify act
   const sourceNames = (await runFile('tar', ['-tzf', path.join(options.outputDir, source.name)])).stdout.trim().split('\n');
   assert.ok(sourceNames.includes('tracetidy-0.2.0/README.md'));
   assert.ok(sourceNames.includes('tracetidy-0.2.0/samples/demo.har'));
+  assert.ok(sourceNames.includes('tracetidy-0.2.0/samples/baseline.har'));
   assert.ok(sourceNames.every(name => name.startsWith('tracetidy-0.2.0/')));
   assert.ok(!sourceNames.some(name => /(?:\.git\/|\.openai|dist\/|private|\.env)/.test(name)));
+  for (const name of ['samples/demo.har', 'samples/baseline.har']) {
+    const archived = (await runFile('tar', ['-xOf', path.join(options.outputDir, source.name), `tracetidy-0.2.0/${name}`])).stdout;
+    assert.equal(archived, await readFile(path.join(options.root, name), 'utf8'));
+  }
   const webNames = (await runFile('tar', ['-tzf', path.join(options.outputDir, web.name)])).stdout.trim().split('\n').sort();
   assert.deepEqual(webNames, [...staticNames, 'LICENSE'].sort());
   const extracted = path.join(options.outputDir, 'extracted');
@@ -87,11 +93,19 @@ test('release packaging refuses a dirty tracked tree before creating outputs', a
   await assert.rejects(lstat(options.outputDir), { code: 'ENOENT' });
 });
 
-test('release packaging rejects tracked credential-like files and non-demo HARs', async t => {
-  for (const name of ['.env.local', 'config/credentials.json', 'notes.private.txt', 'samples/customer.har', '.ssh/id_ed25519']) {
+test('release packaging rejects tracked credential-like files and HARs outside the exact fixture allowlist', async t => {
+  for (const name of [
+    '.env.local', 'config/credentials.json', 'notes.private.txt', '.ssh/id_ed25519',
+    'samples/customer.har', 'samples/baseline-backup.har', 'samples/baseline-copy.HAR',
+    'samples/nested/baseline.har', 'samples/baseline.private.har', 'samples/demo-copy.har',
+    'fixtures/baseline.har',
+  ]) {
     const options = await fixture(t);
     await mkdir(path.dirname(path.join(options.root, name)), { recursive: true });
     await writeFile(path.join(options.root, name), 'SYNTHETIC_REJECTION_FIXTURE');
+    // Force-track ignored private HARs as well: rejection must be enforced by
+    // the packager, independently of repository ignore patterns.
+    await runFile('git', ['add', '-f', '--', name], { cwd: options.root });
     await commit(options.root);
     await assert.rejects(packageRelease(options), /credential-like|Only the tracked synthetic/);
     await assert.rejects(lstat(options.outputDir), { code: 'ENOENT' });

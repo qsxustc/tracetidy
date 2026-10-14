@@ -24,7 +24,8 @@ function defaultWorkerFactory(url, options) {
 }
 
 const REMOTE_ERRORS = new Set([
-  'TraceValidationError', 'RedactionError', 'NoTraceError', 'NoSnapshotError',
+  'TraceValidationError', 'RedactionError', 'NoTraceError', 'NoSnapshotError', 'NoBaselineError',
+  'ComparisonValidationError',
   'TraceProcessingError', 'WorkerMessageError',
 ]);
 
@@ -39,6 +40,7 @@ export class TraceProcessor {
     this._hasLoad = false;
     this._hasTrace = false;
     this._hasSnapshot = false;
+    this._hasBaseline = false;
     this._ensureWorker();
   }
 
@@ -49,6 +51,7 @@ export class TraceProcessor {
     this._hasLoad = true;
     this._hasTrace = false;
     this._hasSnapshot = false;
+    this._hasBaseline = false;
     if (typeof source !== 'string') {
       return Promise.reject(namedError('TraceValidationError', 'Choose a HAR JSON file to load as text.'));
     }
@@ -65,6 +68,44 @@ export class TraceProcessor {
     }
     const { customTerms = [], preserveRoutes = false, reportDetails = {} } = options && typeof options === 'object' && !Array.isArray(options) ? options : { customTerms: null };
     return this._request('redact', { options: { customTerms, preserveRoutes, reportDetails } });
+  }
+
+  /** Keep a baseline inside the worker and build its first comparison. */
+  setBaseline(source) {
+    if (this._disposed) return this._disposedPromise();
+    this._hasBaseline = false;
+    this._cancelKinds(new Set(['setBaseline', 'compare', 'clearBaseline', 'bundle']));
+    if (!this._hasTrace) {
+      return Promise.reject(namedError('NoTraceError', 'Import a HAR recording before comparing a baseline.'));
+    }
+    // Invalid inputs still reach the worker as a safe sentinel so its previous
+    // baseline and report are released before validation fails.
+    return this._request('setBaseline', { source: typeof source === 'string' ? source : null });
+  }
+
+  /** Compare the cached original recordings, independent of sharing rules. */
+  compare(options = {}) {
+    if (this._disposed) return this._disposedPromise();
+    if (!this._hasTrace) {
+      return Promise.reject(namedError('NoTraceError', 'Import a HAR recording before comparing a baseline.'));
+    }
+    if (!this._hasBaseline) {
+      return Promise.reject(namedError('NoBaselineError', 'Import a baseline HAR recording before comparing traces.'));
+    }
+    this._cancelKinds(new Set(['setBaseline', 'compare', 'clearBaseline', 'bundle']));
+    const normalized = options && typeof options === 'object' && !Array.isArray(options)
+      ? { latencyMs: options.latencyMs, latencyPercent: options.latencyPercent }
+      : null;
+    return this._request('compare', { options: normalized });
+  }
+
+  /** Release only the baseline and its comparison; retain the share snapshot. */
+  clearBaseline() {
+    if (this._disposed) return this._disposedPromise();
+    this._hasBaseline = false;
+    this._cancelKinds(new Set(['setBaseline', 'compare', 'clearBaseline', 'bundle']));
+    if (!this._worker) return Promise.resolve({ comparison: null, comparisonText: '' });
+    return this._request('clearBaseline');
   }
 
   /** Create a ZIP from the worker's current successful share snapshot. */
@@ -157,12 +198,15 @@ export class TraceProcessor {
       const error = message.error;
       const safe = error && REMOTE_ERRORS.has(error.name) && typeof error.message === 'string';
       if (pending.kind === 'load') this._hasTrace = false;
-      if (pending.kind !== 'bundle') this._hasSnapshot = false;
+      if (pending.kind === 'load' || pending.kind === 'redact') this._hasSnapshot = false;
+      if (pending.kind === 'load' || pending.kind === 'setBaseline' || pending.kind === 'clearBaseline') this._hasBaseline = false;
       pending.reject(namedError(safe ? error.name : 'TraceProcessingError', safe ? error.message : 'The recording could not be processed. Export a fresh HAR and try again.'));
       return;
     }
     if (pending.kind === 'load') this._hasTrace = true;
     if (pending.kind === 'load' || pending.kind === 'redact') this._hasSnapshot = true;
+    if (pending.kind === 'setBaseline') this._hasBaseline = true;
+    if (pending.kind === 'clearBaseline') this._hasBaseline = false;
     pending.resolve(message.payload);
   }
 
@@ -181,6 +225,7 @@ export class TraceProcessor {
     this._hasLoad = false;
     this._hasTrace = false;
     this._hasSnapshot = false;
+    this._hasBaseline = false;
     if (worker) {
       worker.onmessage = null;
       worker.onerror = null;

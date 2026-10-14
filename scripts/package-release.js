@@ -10,6 +10,7 @@ const runFile = promisify(execFile);
 const projectRoot = fileURLToPath(new URL('../', import.meta.url));
 const GENERATED_DIRECTORIES = new Set(['.git', '.openai', 'dist', 'node_modules', 'artifacts', 'release-artifacts']);
 const STATIC_ROOTS = new Set(['src', 'public', 'samples']);
+const HAR_FIXTURES = new Set(['samples/demo.har', 'samples/baseline.har']);
 const HELP = `Package a TraceTidy release using tracked public files only.
 
 Usage:
@@ -18,9 +19,10 @@ Usage:
 Requires Node.js 20+, Git, tar, a clean tracked working tree, and npm run build.
 The default output is ../release-artifacts/tracetidy-v<VERSION>.
 Creates source/web .tar.gz archives, SHA256SUMS and release-manifest.json.
-Only samples/demo.har is allowed as a HAR fixture. Untracked files, generated
-directories and hosting metadata are excluded. Symlinks and credential-like
-filenames are rejected. The static build must match tracked static sources.
+Only samples/demo.har and samples/baseline.har are allowed as HAR fixtures.
+Untracked files, generated directories and hosting metadata are excluded.
+Symlinks and credential-like filenames are rejected. The static build must
+match tracked static sources.
 Existing output files are refused unless --force is supplied. --force replaces
 only the four generated files; it never removes the output directory.
 `;
@@ -64,8 +66,8 @@ function isPublicPath(name) {
       /\.(?:private(?:\.[^.]+)?|pem|key|p12|pfx|keystore)$/i.test(name)) {
     fail('A credential-like tracked filename was found. Remove it from the public release input.');
   }
-  if (lower.endsWith('.har') && name !== 'samples/demo.har') {
-    fail('Only the tracked synthetic samples/demo.har fixture may be included in a release.');
+  if (lower.endsWith('.har') && !HAR_FIXTURES.has(name)) {
+    fail('Only the tracked synthetic samples/demo.har and samples/baseline.har fixtures may be included in a release.');
   }
   return true;
 }

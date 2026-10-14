@@ -8,6 +8,18 @@ Sharing rules and report fields invalidate the current export immediately. Only 
 
 User-written report titles and reproduction notes are **included as entered**. Custom HAR redaction terms do not scrub them. The UI and generated report warn about this boundary; the audit records whether author notes were included without recording their contents.
 
+## v0.3 comparison boundary
+
+An optional baseline HAR is validated and retained only in the local Worker. Its full original HAR, headers, bodies and query values are not returned to the UI. The comparison view receives endpoint identities (method, origin and path), metrics and indices; its original endpoint labels are sensitive and must be treated like the private inspector when screen sharing.
+
+Matching uses original method + origin + exact path before any route aliasing, ignoring queries and fragments. Two separately sanitized HARs may have incompatible aliases, so the tool cannot infer which original endpoints their aliases represented. Capture the same workflow in a comparable environment; small samples, cache differences and network noise can distort the result.
+
+`comparison.md` uses generated `endpoint-N` labels, allowed method names, fixed prose and numeric metrics. It excludes original routes, origins, filenames, query values, request/response contents and author-written report fields, even when route preservation is enabled for `safe.har`. These comparison IDs are local to the capture pair and do not correspond to the independent route aliases in `safe.har`. Timing, size and failure patterns still carry information. The report includes complete recording summaries and at most 100 endpoint rows, prioritizing regressions and additions.
+
+Baseline replacement and threshold updates cancel pending comparison and ZIP operations. Invalid baselines discard the old baseline and report; invalid thresholds discard the old report. Removing a baseline drops `comparison.md` from subsequent ZIPs. Importing a new current recording, clearing the session, closing or reloading the tab releases the baseline. The current HAR/report/audit snapshot remains independent from comparison validity, so a bad baseline does not prevent ordinary sharing.
+
+Original request header previews are bounded to 65,536 characters and 200 valid records before HTML escaping. This limits one display amplification path, but validation and in-memory parsing are not a general denial-of-service defense.
+
 ## Purpose and scope
 
 TraceTidy reduces accidental disclosure when developers share browser HAR captures. It parses the file locally, retains an explicit subset of HAR fields, removes sensitive material, and creates an export for human review. It is a deterministic heuristic tool, not a formal anonymizer, a secrets scanner with complete detection, or a compliance certification.

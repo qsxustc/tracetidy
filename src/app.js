@@ -355,6 +355,7 @@ app.addEventListener('click', async event => {
   if (comparisonEndpoint) {
     const endpoint = state.comparison?.endpoints.find(item => item.id === comparisonEndpoint.dataset.comparisonEndpoint);
     if (!endpoint?.currentIndices.length) return;
+    state.filterCache = null;
     state.finding = { id: `comparison-${endpoint.id}`, title: `${endpoint.method} ${endpoint.path}`, indices: new Set(endpoint.currentIndices) };
     state.view = 'requests'; state.page = 0; state.search = ''; state.filter = 'all';
     state.selected = endpoint.currentIndices[0]; state.tab = 'requests'; render();

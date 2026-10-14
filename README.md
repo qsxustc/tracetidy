@@ -108,16 +108,18 @@ The browser app needs module Web Workers and a local HTTP server or hosted HTTPS
 
 ```mermaid
 flowchart LR
-  HAR[Original HAR on your device] --> Inspect[Private trace inspection]
-  HAR --> Core[Shared sanitizer in src/har.js]
-  Terms[Your private terms] --> Core
-  Core --> Snapshot[Sanitized snapshot]
-  Snapshot --> Safe[Sanitized HAR]
-  Snapshot --> Report[Markdown issue report]
-  Core --> Audit[Aggregate redaction audit]
+  HAR["Original HAR on your device"] --> Inspect["Private trace inspection"]
+  HAR --> Worker["Local Web Worker"]
+  Terms["Your HAR redaction terms"] --> Worker
+  Worker --> Core["Shared sanitizer"]
+  Core --> Snapshot["Sanitized trace snapshot"]
+  Snapshot --> Safe["Sanitized HAR"]
+  Snapshot --> Report["Markdown issue report"]
+  Author["Reviewed reproduction context"] --> Report
+  Core --> Audit["Aggregate redaction audit"]
 ```
 
-The browser interface loads `src/har.js` directly; the CLI imports the same ESM module. The core validates the input shape, exports explicitly allowed HAR fields, applies sensitive-value rules, and builds the issue draft from the sanitized result. Original trace details are used only for private inspection. The app does not need a backend or a network service to process a file.
+The browser interface talks to `src/trace-worker.js` through `src/processor.js`. The Worker and CLI import the same ESM core in `src/har.js`. The core validates the input shape, exports explicitly allowed HAR fields, applies sensitive-value rules, and builds the issue draft from the sanitized result. Original trace details are used only for private inspection. Reviewed author context is added to the report separately. The app does not need a backend or network service to process a file.
 
 ## Why open source—and how it could become a business
 
